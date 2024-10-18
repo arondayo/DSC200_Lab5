@@ -3,7 +3,7 @@ import csv
 import re
 
 pdfFilename = "data/Table9.pdf"
-DEBUG = True
+DEBUG = False
 
 with open(pdfFilename, "rb") as pdfFileObject:
     # Getting raw data
@@ -14,9 +14,7 @@ with open(pdfFilename, "rb") as pdfFileObject:
     if DEBUG: print(f"Raw page_data:\n{page_data}\n")
 
     # Getting headers
-    # headers = page_data[0][-24:-2]
-
-    # pulled from last assignment because I'm lazy and it'll work for now
+    # pulled from last assignment
     headers_dict = {
         'B': 'Countries and areas',
         'E': 'Child labour (%)+2005–2012*_total',
@@ -37,7 +35,6 @@ with open(pdfFilename, "rb") as pdfFileObject:
 
     headers = list(headers_dict.values())
     if DEBUG: print(f"Raw headers (len: {len(headers)}):\n{headers}\n")
-    # TODO produce clean headers directly from pdf file ?
 
     # Cleaning data
     i = 0
@@ -96,12 +93,76 @@ with open(pdfFilename, "rb") as pdfFileObject:
         i = 0
         for i in range(len(row)):
             row[i] = row[i].strip()  # strips trailing whitespace
-            row[i] = row[i].replace("\n   ", "")  # removes newline + whitespace in country names
+            row[i] = row[i].replace("\n   ", "")  # removes newline+whitespace in country names
             if re.match("[0-9]* [A-z,]*", row[i]):  # removes the extra stuff after numbers
                 row[i] = row[i].split(" ")[0]
 
+            # NOTE:
+            # the "–" characters extracted from the pdf are:
+            #   U+2013 : EN DASH
+            # which is not the same character from the -_ key on the keyboard:
+            #   U+002D : HYPHEN-MINUS {hyphen, dash; minus sign}
+            if re.match(r"–", row[i]):
+                row[i] = None
+
+    # logic to discard row if it only contains '-'
+    # for each row in rows, iterate through the row from [1:], if it's all None mark the row for deletion
+    i = 0
+    rows_to_delete = []
+    for i in range(len(rows)):
+        marked_for_deletion = True
+        for entry in rows[i][1:]:
+            if entry is not None:
+                marked_for_deletion = False
+                break
+        if marked_for_deletion:
+            rows_to_delete.append(i)
+
+    # deletion process iterates through backwards to avoid index shifting affecting the next deletion target
+    for index in sorted(rows_to_delete, reverse=True):
+        del rows[index]
+
     if DEBUG: print(f"\nCleaned data (Rows: {len(rows)}, Cells per row: {len(rows[0])}):\n{rows}")
 
-# TODO: add logic to discard row if it only contains '-'
+# # write to csv file
+# with open("data/group_1_Lab5_unflattened.csv", "w") as file_pointer:
+#     writer = csv.writer(file_pointer, delimiter=",", lineterminator="\n")
+#     writer.writerow(headers)
+#     writer.writerows(rows)
+#     file_pointer.close()
 
-# TODO: write to csv file
+
+# Flattening to output format (adapted from lab 4)
+output_headers = ["CountryName", "CategoryName", "CategoryTotal"]
+output_list = []
+for data in rows:  # Loop through each country's data from rows
+    row = []
+    country = data[0]
+    row.append(country)  # set the country name for the CountryName column
+    i = 1  # Keeps track of which data element the loop is on
+    for value in headers:  # Loops through each header for each country
+        if value == "Countries and areas":
+            continue
+        row.append(value)  # Add in the value for the CategoryName column
+        if i < len(data):  # Ensure i does not go out of bounds
+            if data[i] is None:  # Check if the row is equal to zero or a -, throw out if true
+                i += 1
+                row = [country]  # Reset the row list to be ready for the next iteration
+                continue
+            else:  # add in the value for the CategoryTotal Column
+                row.append(data[i])
+        i += 1
+        output_list.append(row)  # Add the row to the output list
+        row = [country]  # Reset the row list to be ready for the next iteration
+
+# Write output_headers and output_list to csv file
+with open("data/group_1_Lab5.csv", "w") as outfile:
+    csvWriter = csv.writer(outfile, lineterminator='\n')
+    csvWriter.writerow(output_headers)
+    count = 0
+    for row in output_list:
+        csvWriter.writerow(row)
+        count += 1
+
+# print the number of rows outputted to the csv
+print("There are {} rows in the csv!".format(count))
